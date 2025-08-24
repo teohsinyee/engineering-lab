@@ -254,7 +254,7 @@ jobs:
           cat gitleaks.json >> gitleaks.md
           echo '```' >> gitleaks.md
 
-      - name: Build security.md (compact)
+      - name: Build security.md (compact with per-file Bandit)
         if: always()
         run: |
           sudo apt-get update -y >/dev/null 2>&1 || true
@@ -280,13 +280,29 @@ jobs:
               BANDIT_HIGH=$(jq '.results | map(select(.issue_severity == "HIGH")) | length' bandit.json 2>/dev/null || echo "0")
               BANDIT_MEDIUM=$(jq '.results | map(select(.issue_severity == "MEDIUM")) | length' bandit.json 2>/dev/null || echo "0")
               BANDIT_LOW=$(jq '.results | map(select(.issue_severity == "LOW")) | length' bandit.json 2>/dev/null || echo "0")
+
               echo "🚨 Found: $BANDIT_ISSUES security issues" >> security.md
               echo "- **HIGH**: $BANDIT_HIGH issues" >> security.md
               echo "- **MEDIUM**: $BANDIT_MEDIUM issues" >> security.md
               echo "- **LOW**: $BANDIT_LOW issues" >> security.md
               echo "" >> security.md
-              echo "**Issues found:**" >> security.md
-              jq -r '.results[] | "- " + .test_id + ": " + .issue_text + " (line " + (.line_number | tostring) + ")"' bandit.json >> security.md
+              echo "**Issues by file:**" >> security.md
+
+              jq -r '
+                def sev_pri:
+                  if . == "HIGH" then 0
+                  elif . == "MEDIUM" then 1
+                  else 2 end;
+
+                .results
+                | sort_by(.filename, (.issue_severity | sev_pri), .line_number)
+                | group_by(.filename)
+                | .[]
+                | "#### " + (.[0].filename) + "\n"
+                  + ( map("- (\(.issue_severity)) \(.test_id) at line \(.line_number): \(.issue_text)")
+                      | join("\n") )
+                  + "\n"
+              ' bandit.json >> security.md
             else
               echo "✅ No security issues detected" >> security.md
             fi
@@ -326,7 +342,7 @@ jobs:
   aggregate:
     name: Aggregate → one PR comment
     runs-on: ubuntu-latest
-    needs: [lint, types, tests, security] 
+    needs: [lint, types, tests, security]  # tests still run, EnricoMi comments separately
     if: always()
     steps:
       - name: Download lint
@@ -339,6 +355,7 @@ jobs:
         with:
           name: types-report
           path: .
+      # Omit tests in the combined summary (handled by EnricoMi)
       - name: Download security
         uses: actions/download-artifact@v4
         with:
@@ -354,7 +371,6 @@ jobs:
           echo "" >> summary.md
           cat types.md >> summary.md
           echo "" >> summary.md
-          # Omit tests.md here on purpose
           cat security.md >> summary.md
 
       - name: Post or update PR comment
