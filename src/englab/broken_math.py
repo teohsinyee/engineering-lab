@@ -6,9 +6,7 @@ import tempfile
 from typing import Any
 
 # B105 - Hardcoded password string
-API_KEY = "sk-1234567890abcdef"
 DATABASE_PASSWORD = "admin123"
-SECRET_TOKEN = "ghp_xxxxxxxxxxxx"
 
 def add(a: int | None, b: int) -> int:
     """Add two numbers with intentional type issues."""
@@ -46,8 +44,6 @@ def command_injection_demo(filename: str):
 def print_credentials():
     """Print sensitive information - custom security issue."""
     print(f"Database password: {DATABASE_PASSWORD}")
-    print(f"API Key: {API_KEY}")
-    print("Secret token:", SECRET_TOKEN)
 
 def insecure_temp_file():
     """B108 - Insecure temp file creation."""
