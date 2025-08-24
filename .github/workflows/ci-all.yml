@@ -1,0 +1,380 @@
+name: ci-all
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write   # to post the combined PR comment
+  checks: write          # for EnricoMi to add check annotations
+
+concurrency:
+  group: ci-all-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install Ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff==0.5.7"
+
+      - name: Run Ruff and capture output
+        id: ruff
+        run: |
+          set -o pipefail
+          (ruff check --output-format=github . && ruff format --check .) 2>&1 | tee ruff.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT" || true
+
+      - name: Build lint.md
+        if: always()
+        run: |
+          echo "## Lint (Ruff)" > lint.md
+          if [ -s ruff.txt ]; then
+            echo "" >> lint.md
+            echo '```' >> lint.md
+            cat ruff.txt >> lint.md
+            echo '```' >> lint.md
+          else
+            echo "" >> lint.md
+            echo "✅ No issues." >> lint.md
+          fi
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: lint.md
+
+  types:
+    name: Types (Pyright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies and pyright
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          fi
+          pip install -e .
+          pip install pyright
+
+      - name: Run Pyright and capture output
+        id: pyright
+        run: |
+          set -o pipefail
+          (pyright) 2>&1 | tee pyright.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT" || true
+
+      - name: Build types.md
+        if: always()
+        run: |
+          echo "## Types (Pyright)" > types.md
+          echo "" >> types.md
+          echo '```' >> types.md
+          cat pyright.txt >> types.md
+          echo '```' >> types.md
+
+      - name: Upload types report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: types-report
+          path: types.md
+
+  tests:
+    name: Tests (Pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          fi
+          pip install -e .
+          pip install pytest pytest-cov
+
+      - name: Run pytest with coverage and capture output
+        id: pytest
+        env:
+          PYTHONPATH: .
+        run: |
+          set -o pipefail
+          (pytest -q --junitxml=pytest-junit.xml --cov=src/englab --cov-report=term --cov-report=xml) 2>&1 | tee pytest.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT" || true
+
+      - name: Publish test results to PR (checks + comment)
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: pytest-junit.xml
+          check_name: "pytest (all tests)"
+          comment_mode: always
+          comment_title: "Pytest results (all tests)"
+          deduplicate: true
+
+      - name: Build tests.md
+        if: always()
+        run: |
+          echo "## Tests (Pytest)" > tests.md
+          echo "" >> tests.md
+          echo '```' >> tests.md
+          cat pytest.txt >> tests.md
+          echo '```' >> tests.md
+          echo "" >> tests.md
+          echo "_JUnit file: pytest-junit.xml (see run artifacts)_" >> tests.md
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-artifacts
+          path: |
+            tests.md
+            pytest-junit.xml
+            coverage.xml
+
+  security:
+    name: Security (pip-audit + bandit + gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install pip-audit bandit
+
+      - name: pip-audit (JSON + compact summary)
+        run: |
+          set -o pipefail
+          sudo apt-get update -y >/dev/null 2>&1 || true
+          sudo apt-get install -y jq >/dev/null 2>&1 || true
+
+          pip-audit -r requirements.txt -f json -o pip-audit.json || true
+
+          {
+            echo "| Package | Version | Vulns |"
+            echo "|---|---:|---:|"
+            if jq -e 'type=="array"' pip-audit.json >/dev/null 2>&1; then
+              jq -r '.[] | [ .name, .version, ((.vulns // .vulnerabilities // []) | length) ] | @tsv' pip-audit.json \
+                | awk -F'\t' '{printf("| %s | %s | %s |\n",$1,$2,$3)}'
+            elif jq -e '.dependencies' pip-audit.json >/dev/null 2>&1; then
+              jq -r '.dependencies[] | [ .name, .version, ((.vulns // .vulnerabilities // []) | length) ] | @tsv' pip-audit.json \
+                | awk -F'\t' '{printf("| %s | %s | %s |\n",$1,$2,$3)}'
+            else
+              echo "| No packages analyzed | - | - |"
+            fi
+          } > pip-audit-summary.md
+
+      - name: Bandit scan with debug
+        run: |
+          set -o pipefail
+          echo "Running bandit scan..."
+          bandit -r src/ -f json -o bandit.json -v || true
+          echo "Bandit results:"
+          ls -la bandit.json
+          wc -l bandit.json
+          head -20 bandit.json || true
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.18.4
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz -o gitleaks.tgz
+          tar xzf gitleaks.tgz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: gitleaks detect with debug
+        run: |
+          set -o pipefail
+          echo "Running gitleaks..."
+          gitleaks detect --no-git --redact --report-format=json --report-path=gitleaks.json -v || true
+          echo "Gitleaks results:"
+          ls -la gitleaks.json
+          cat gitleaks.json
+          echo "## gitleaks" > gitleaks.md
+          echo '```json' >> gitleaks.md
+          cat gitleaks.json >> gitleaks.md
+          echo '```' >> gitleaks.md
+
+      - name: Build security.md (compact with per-file Bandit)
+        if: always()
+        run: |
+          sudo apt-get update -y >/dev/null 2>&1 || true
+          sudo apt-get install -y jq >/dev/null 2>&1 || true
+
+          echo "## Security Scan Results" > security.md
+          echo "" >> security.md
+
+          echo "### pip-audit (dependency vulnerabilities)" >> security.md
+          if [ -f pip-audit-summary.md ] && [ -s pip-audit-summary.md ]; then
+            cat pip-audit-summary.md >> security.md
+          else
+            echo "❌ pip-audit failed or no results" >> security.md
+          fi
+          echo "" >> security.md
+          echo "_Full JSON: see pip-audit.json artifact_" >> security.md
+          echo "" >> security.md
+
+          echo "### bandit (code security patterns)" >> security.md
+          if [ -s bandit.json ]; then
+            BANDIT_ISSUES=$(jq '.results | length // 0' bandit.json 2>/dev/null || echo "0")
+            if [ "$BANDIT_ISSUES" -gt 0 ]; then
+              BANDIT_HIGH=$(jq '.results | map(select(.issue_severity == "HIGH")) | length' bandit.json 2>/dev/null || echo "0")
+              BANDIT_MEDIUM=$(jq '.results | map(select(.issue_severity == "MEDIUM")) | length' bandit.json 2>/dev/null || echo "0")
+              BANDIT_LOW=$(jq '.results | map(select(.issue_severity == "LOW")) | length' bandit.json 2>/dev/null || echo "0")
+
+              echo "🚨 Found: $BANDIT_ISSUES security issues" >> security.md
+              echo "- **HIGH**: $BANDIT_HIGH issues" >> security.md
+              echo "- **MEDIUM**: $BANDIT_MEDIUM issues" >> security.md
+              echo "- **LOW**: $BANDIT_LOW issues" >> security.md
+              echo "" >> security.md
+              echo "**Issues by file:**" >> security.md
+
+              jq -r '
+                def sev_pri:
+                  if . == "HIGH" then 0
+                  elif . == "MEDIUM" then 1
+                  else 2 end;
+
+                .results
+                | sort_by(.filename, (.issue_severity | sev_pri), .line_number)
+                | group_by(.filename)
+                | .[]
+                | "#### " + (.[0].filename) + "\n"
+                  + ( map("- (\(.issue_severity)) \(.test_id) at line \(.line_number): \(.issue_text)")
+                      | join("\n") )
+                  + "\n"
+              ' bandit.json >> security.md
+            else
+              echo "✅ No security issues detected" >> security.md
+            fi
+          else
+            echo "❌ Bandit scan failed or no results" >> security.md
+          fi
+          echo "" >> security.md
+
+          echo "### gitleaks (hardcoded secrets)" >> security.md
+          if [ -s gitleaks.json ]; then
+            GITLEAKS_ISSUES=$(jq '. | length // 0' gitleaks.json 2>/dev/null || echo "0")
+            if [ "$GITLEAKS_ISSUES" -gt 0 ]; then
+              echo "⚠️ Found: $GITLEAKS_ISSUES potential secrets" >> security.md
+            else
+              echo "✅ No secrets detected" >> security.md
+            fi
+            echo "" >> security.md
+            echo '```json' >> security.md
+            cat gitleaks.json >> security.md
+            echo '```' >> security.md
+          else
+            echo "✅ No secrets detected" >> security.md
+          fi
+
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: |
+            security.md
+            gitleaks.json
+            pip-audit.json
+            pip-audit-summary.md
+            bandit.json
+
+  aggregate:
+    name: Aggregate → one PR comment
+    runs-on: ubuntu-latest
+    needs: [lint, types, tests, security]  # tests still run, EnricoMi comments separately
+    if: always()
+    steps:
+      - name: Download lint
+        uses: actions/download-artifact@v4
+        with:
+          name: lint-report
+          path: .
+      - name: Download types
+        uses: actions/download-artifact@v4
+        with:
+          name: types-report
+          path: .
+      # Omit tests in the combined summary (handled by EnricoMi)
+      - name: Download security
+        uses: actions/download-artifact@v4
+        with:
+          name: security-report
+          path: .
+
+      - name: Build combined summary (no pytest)
+        run: |
+          echo "# 🔍 CI Summary" > summary.md
+          echo "_Comprehensive code quality and security analysis (tests are reported by EnricoMi)_" >> summary.md
+          echo "" >> summary.md
+          cat lint.md >> summary.md
+          echo "" >> summary.md
+          cat types.md >> summary.md
+          echo "" >> summary.md
+          cat security.md >> summary.md
+
+      - name: Post or update PR comment
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          filePath: summary.md
+          comment_tag: ci-all-summary
