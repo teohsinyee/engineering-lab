@@ -5,7 +5,8 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write  # needed to post the combined PR comment
+  pull-requests: write   # to post the combined PR comment
+  checks: write          # for EnricoMi to add check annotations
 
 concurrency:
   group: ci-all-${{ github.ref }}
@@ -22,6 +23,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install Ruff
         run: |
@@ -32,7 +36,7 @@ jobs:
         id: ruff
         run: |
           set -o pipefail
-          (ruff check --output-format=github .) 2>&1 | tee ruff.txt
+          (ruff check --output-format=github . && ruff format --check .) 2>&1 | tee ruff.txt
           echo "exit_code=$?" >> "$GITHUB_OUTPUT" || true
 
       - name: Build lint.md
@@ -46,7 +50,7 @@ jobs:
             echo '```' >> lint.md
           else
             echo "" >> lint.md
-            echo "No issues." >> lint.md
+            echo "✅ No issues." >> lint.md
           fi
 
       - name: Upload lint report
@@ -66,10 +70,20 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
-      - name: Install pyright
+      - name: Install dependencies and pyright
         run: |
           python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt  
+          fi
+          pip install -e .
           pip install pyright
 
       - name: Run Pyright and capture output
@@ -107,22 +121,40 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt  
+          fi
           pip install -e .
           pip install pytest pytest-cov
 
-      - name: Run pytest and capture output
+      - name: Run pytest with coverage and capture output
         id: pytest
         env:
           PYTHONPATH: .
         run: |
           set -o pipefail
-          (pytest -q --junitxml=pytest-junit.xml) 2>&1 | tee pytest.txt
+          (pytest -q --junitxml=pytest-junit.xml --cov=src/englab --cov-report=term --cov-report=xml) 2>&1 | tee pytest.txt
           echo "exit_code=$?" >> "$GITHUB_OUTPUT" || true
+
+      - name: Publish test results to PR (checks + comment)
+        if: always()
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: pytest-junit.xml
+          check_name: "pytest (all tests)"
+          comment_mode: always
+          comment_title: "Pytest results (all tests)"
+          deduplicate: true
 
       - name: Build tests.md
         if: always()
@@ -143,9 +175,10 @@ jobs:
           path: |
             tests.md
             pytest-junit.xml
+            coverage.xml
 
   security:
-    name: Security (pip-audit + gitleaks)
+    name: Security (pip-audit + safety + bandit + gitleaks)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -156,13 +189,38 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
-      - name: pip-audit
+      - name: Install security tools
         run: |
           python -m pip install --upgrade pip
-          pip install pip-audit
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install pip-audit safety bandit
+
+      - name: pip-audit (JSON + compact summary)
+        run: |
           set -o pipefail
-          (pip-audit -r requirements.txt --progress-spinner=off || true) 2>&1 | tee pip-audit.txt
+          pip-audit -r requirements.txt -f json -o pip-audit.json || true
+          jq -r '
+            def vulns: (.vulns // .vulnerabilities // []);
+            ["| Package | Version | Vulns |",
+             "|---|---:|---:|"] ,
+            (.[] | "| " + .name + " | " + .version + " | " + ((vulns|length)|tostring) + " |")
+          ' pip-audit.json > pip-audit-summary.md
+
+      - name: Safety check
+        run: |
+          set -o pipefail
+          safety check -r requirements.txt --json -o safety.json || true
+
+      - name: Bandit scan  
+        run: |
+          set -o pipefail
+          bandit -r src/ -f json -o bandit.json || true
 
       - name: Install gitleaks
         run: |
@@ -181,18 +239,48 @@ jobs:
           cat gitleaks.json >> gitleaks.md
           echo '```' >> gitleaks.md
 
-      - name: Build security.md
+      - name: Build security.md with enhanced reporting
         if: always()
         run: |
-          echo "## Security" > security.md
+          echo "## Security Scan Results" > security.md
+          echo "_This demo repo intentionally contains security issues for testing_" >> security.md
           echo "" >> security.md
-          echo "### pip-audit" >> security.md
-          echo '```' >> security.md
-          cat pip-audit.txt >> security.md
-          echo '```' >> security.md
+          
+          echo "### pip-audit (dependency vulnerabilities)" >> security.md
+          cat pip-audit-summary.md >> security.md
           echo "" >> security.md
-          echo "### gitleaks" >> security.md
-          cat gitleaks.md >> security.md
+          echo "_Full JSON: see pip-audit.json artifact_" >> security.md
+          echo "" >> security.md
+          
+          echo "### safety (vulnerability database)" >> security.md
+          SAFETY_ISSUES=$(jq '.vulnerabilities | length // 0' safety.json 2>/dev/null || echo "0")
+          if [ "$SAFETY_ISSUES" -gt 0 ]; then
+            echo "⚠️ Found: $SAFETY_ISSUES vulnerabilities" >> security.md
+          else
+            echo "✅ No known vulnerabilities found" >> security.md
+          fi
+          echo "" >> security.md
+          
+          echo "### bandit (code security patterns)" >> security.md
+          BANDIT_ISSUES=$(jq '.results | length // 0' bandit.json 2>/dev/null || echo "0")
+          if [ "$BANDIT_ISSUES" -gt 0 ]; then
+            echo "⚠️ Found: $BANDIT_ISSUES security issues" >> security.md
+          else
+            echo "✅ No security issues detected" >> security.md
+          fi
+          echo "" >> security.md
+          
+          echo "### gitleaks (hardcoded secrets)" >> security.md
+          GITLEAKS_ISSUES=$(jq '. | length // 0' gitleaks.json 2>/dev/null || echo "0")
+          if [ "$GITLEAKS_ISSUES" -gt 0 ]; then
+            echo "⚠️ Found: $GITLEAKS_ISSUES potential secrets" >> security.md
+          else
+            echo "✅ No secrets detected" >> security.md
+          fi
+          echo "" >> security.md
+          echo '```json' >> security.md
+          cat gitleaks.json >> security.md
+          echo '```' >> security.md
 
       - name: Upload security report
         if: always()
@@ -202,6 +290,10 @@ jobs:
           path: |
             security.md
             gitleaks.json
+            pip-audit.json
+            pip-audit-summary.md
+            safety.json
+            bandit.json
 
   aggregate:
     name: Aggregate → one PR comment
@@ -232,7 +324,8 @@ jobs:
 
       - name: Build combined summary
         run: |
-          echo "# CI Summary" > summary.md
+          echo "# 🔍 CI Summary" > summary.md
+          echo "_Comprehensive code quality and security analysis_" >> summary.md
           echo "" >> summary.md
           cat lint.md >> summary.md
           echo "" >> summary.md
