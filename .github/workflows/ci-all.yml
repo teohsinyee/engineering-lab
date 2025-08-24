@@ -1,0 +1,243 @@
+name: ci-all
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write      # needed to post the combined PR comment
+
+concurrency:
+  group: ci-all-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install "ruff==0.5.7"
+
+      - name: Run Ruff and capture output
+        id: ruff
+        run: |
+          set -o pipefail
+          # run, capture stdout+stderr
+          (ruff check --output-format=github .) 2>&1 | tee ruff.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT" || true
+
+      - name: Build lint.md
+        if: always()
+        run: |
+          echo "## Lint (Ruff)" > lint.md
+          if grep -q . ruff.txt; then
+            echo "" >> lint.md
+            echo '```' >> lint.md
+            cat ruff.txt >> lint.md
+            echo '```' >> lint.md
+          else
+            echo "" >> lint.md
+            echo "No issues." >> lint.md
+          fi
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: lint.md
+
+  types:
+    name: Types (Pyright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install pyright
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyright
+
+      - name: Run Pyright and capture output
+        id: pyright
+        run: |
+          set -o pipefail
+          (pyright) 2>&1 | tee pyright.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT" || true
+
+      - name: Build types.md
+        if: always()
+        run: |
+          echo "## Types (Pyright)" > types.md
+          echo "" >> types.md
+          echo '```' >> types.md
+          cat pyright.txt >> types.md
+          echo '```' >> types.md
+
+      - name: Upload types report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: types-report
+          path: types.md
+
+  tests:
+    name: Tests (Pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || true
+          pip install pytest pytest-cov
+
+      - name: Run pytest and capture output
+        id: pytest
+        run: |
+          set -o pipefail
+          (pytest -q --junitxml=pytest-junit.xml) 2>&1 | tee pytest.txt
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT" || true
+
+      - name: Build tests.md
+        if: always()
+        run: |
+          echo "## Tests (Pytest)" > tests.md
+          echo "" >> tests.md
+          echo '```' >> tests.md
+          cat pytest.txt >> tests.md
+          echo '```' >> tests.md
+          echo "" >> tests.md
+          echo "_JUnit file: pytest-junit.xml (see run artifacts)_" >> tests.md
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-artifacts
+          path: |
+            tests.md
+            pytest-junit.xml
+
+  security:
+    name: Security (pip-audit + gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          set -o pipefail
+          (pip-audit --progress-spinner=off || true) 2>&1 | tee pip-audit.txt
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.18.4
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz -o gitleaks.tgz
+          tar xzf gitleaks.tgz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: gitleaks detect
+        run: |
+          set -o pipefail
+          (gitleaks detect --no-git --redact || true) 2>&1 | tee gitleaks.txt
+
+      - name: Build security.md
+        if: always()
+        run: |
+          echo "## Security" > security.md
+          echo "" >> security.md
+          echo "### pip-audit" >> security.md
+          echo '```' >> security.md
+          cat pip-audit.txt >> security.md
+          echo '```' >> security.md
+          echo "" >> security.md
+          echo "### gitleaks" >> security.md
+          echo '```' >> security.md
+          cat gitleaks.txt >> security.md
+          echo '```' >> security.md
+
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: security.md
+
+  aggregate:
+    name: Aggregate → one PR comment
+    runs-on: ubuntu-latest
+    needs: [lint, types, tests, security]
+    if: always()
+    steps:
+      - name: Download lint
+        uses: actions/download-artifact@v4
+        with:
+          name: lint-report
+          path: .
+      - name: Download types
+        uses: actions/download-artifact@v4
+        with:
+          name: types-report
+          path: .
+      - name: Download tests
+        uses: actions/download-artifact@v4
+        with:
+          name: tests-artifacts
+          path: .
+      - name: Download security
+        uses: actions/download-artifact@v4
+        with:
+          name: security-report
+          path: .
+
+      - name: Build combined summary
+        run: |
+          echo "# CI Summary" > summary.md
+          echo "" >> summary.md
+          cat lint.md >> summary.md
+          echo "" >> summary.md
+          cat types.md >> summary.md
+          echo "" >> summary.md
+          cat tests.md >> summary.md
+          echo "" >> summary.md
+          cat security.md >> summary.md
+
+      - name: Post or update PR comment
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          filePath: summary.md
+          comment_tag: ci-all-summary   # ensures update instead of spam
