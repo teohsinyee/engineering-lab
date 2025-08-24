@@ -5,7 +5,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write      # needed to post the combined PR comment
+  pull-requests: write  # needed to post the combined PR comment
 
 concurrency:
   group: ci-all-${{ github.ref }}
@@ -32,7 +32,6 @@ jobs:
         id: ruff
         run: |
           set -o pipefail
-          # run, capture stdout+stderr
           (ruff check --output-format=github .) 2>&1 | tee ruff.txt
           echo "exit_code=$?" >> "$GITHUB_OUTPUT" || true
 
@@ -40,7 +39,7 @@ jobs:
         if: always()
         run: |
           echo "## Lint (Ruff)" > lint.md
-          if grep -q . ruff.txt; then
+          if [ -s ruff.txt ]; then
             echo "" >> lint.md
             echo '```' >> lint.md
             cat ruff.txt >> lint.md
@@ -117,6 +116,8 @@ jobs:
 
       - name: Run pytest and capture output
         id: pytest
+        env:
+          PYTHONPATH: .
         run: |
           set -o pipefail
           (pytest -q --junitxml=pytest-junit.xml) 2>&1 | tee pytest.txt
@@ -160,7 +161,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pip-audit
           set -o pipefail
-          (pip-audit --progress-spinner=off || true) 2>&1 | tee pip-audit.txt
+          (pip-audit -r requirements.txt --progress-spinner=off || true) 2>&1 | tee pip-audit.txt
 
       - name: Install gitleaks
         run: |
@@ -170,10 +171,14 @@ jobs:
           sudo mv gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
-      - name: gitleaks detect
+      - name: gitleaks detect (JSON + markdown)
         run: |
           set -o pipefail
-          (gitleaks detect --no-git --redact || true) 2>&1 | tee gitleaks.txt
+          gitleaks detect --no-git --redact --report-format=json --report-path=gitleaks.json || true
+          echo "## gitleaks" > gitleaks.md
+          echo '```json' >> gitleaks.md
+          cat gitleaks.json >> gitleaks.md
+          echo '```' >> gitleaks.md
 
       - name: Build security.md
         if: always()
@@ -186,16 +191,16 @@ jobs:
           echo '```' >> security.md
           echo "" >> security.md
           echo "### gitleaks" >> security.md
-          echo '```' >> security.md
-          cat gitleaks.txt >> security.md
-          echo '```' >> security.md
+          cat gitleaks.md >> security.md
 
       - name: Upload security report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: security-report
-          path: security.md
+          path: |
+            security.md
+            gitleaks.json
 
   aggregate:
     name: Aggregate → one PR comment
@@ -240,4 +245,4 @@ jobs:
         uses: thollander/actions-comment-pull-request@v2
         with:
           filePath: summary.md
-          comment_tag: ci-all-summary   # ensures update instead of spam
+          comment_tag: ci-all-summary
