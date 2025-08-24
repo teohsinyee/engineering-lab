@@ -81,7 +81,7 @@ jobs:
             pip install -r requirements.txt
           fi
           if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt  
+            pip install -r requirements-dev.txt
           fi
           pip install -e .
           pip install pyright
@@ -132,7 +132,7 @@ jobs:
             pip install -r requirements.txt
           fi
           if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt  
+            pip install -r requirements-dev.txt
           fi
           pip install -e .
           pip install pytest pytest-cov
@@ -178,7 +178,7 @@ jobs:
             coverage.xml
 
   security:
-    name: Security (pip-audit + safety + bandit + gitleaks)
+    name: Security (pip-audit + bandit + gitleaks)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -199,23 +199,19 @@ jobs:
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
-          pip install pip-audit safety bandit
+          pip install pip-audit bandit
 
       - name: pip-audit (JSON + compact summary)
         run: |
           set -o pipefail
-          # Ensure jq is present (usually already installed)
           sudo apt-get update -y >/dev/null 2>&1 || true
           sudo apt-get install -y jq >/dev/null 2>&1 || true
 
           pip-audit -r requirements.txt -f json -o pip-audit.json || true
 
-          # Build markdown table as RAW lines (no JSON serialization)
           {
             echo "| Package | Version | Vulns |"
             echo "|---|---:|---:|"
-
-            # Handle both possible JSON layouts from pip-audit
             if jq -e 'type=="array"' pip-audit.json >/dev/null 2>&1; then
               jq -r '.[] | [ .name, .version, ((.vulns // .vulnerabilities // []) | length) ] | @tsv' pip-audit.json \
                 | awk -F'\t' '{printf("| %s | %s | %s |\n",$1,$2,$3)}'
@@ -226,20 +222,6 @@ jobs:
               echo "| No packages analyzed | - | - |"
             fi
           } > pip-audit-summary.md
-
-      - name: Safety scan (updated command)
-        run: |
-          set -o pipefail
-          echo "Running safety scan..."
-          # Use the new 'scan' command instead of deprecated 'check'
-          safety scan -r requirements.txt --json -o safety.json || true
-          echo "Safety output:" && cat safety.json || true
-          
-          # Fallback: try the old command if new one fails
-          if [ ! -s safety.json ]; then
-            echo "Trying legacy safety check command..."
-            safety check -r requirements.txt --json -o safety-legacy.json || true
-          fi
 
       - name: Bandit scan with debug
         run: |
@@ -265,24 +247,22 @@ jobs:
           echo "Running gitleaks..."
           gitleaks detect --no-git --redact --report-format=json --report-path=gitleaks.json -v || true
           echo "Gitleaks results:"
-          ls -la gitleaks.json  
+          ls -la gitleaks.json
           cat gitleaks.json
           echo "## gitleaks" > gitleaks.md
           echo '```json' >> gitleaks.md
           cat gitleaks.json >> gitleaks.md
           echo '```' >> gitleaks.md
 
-      - name: Build security.md with enhanced reporting
+      - name: Build security.md (compact)
         if: always()
         run: |
-          # Ensure jq available for the summaries below
           sudo apt-get update -y >/dev/null 2>&1 || true
           sudo apt-get install -y jq >/dev/null 2>&1 || true
 
           echo "## Security Scan Results" > security.md
-          echo "_This demo repo intentionally contains security issues for testing_" >> security.md
           echo "" >> security.md
-          
+
           echo "### pip-audit (dependency vulnerabilities)" >> security.md
           if [ -f pip-audit-summary.md ] && [ -s pip-audit-summary.md ]; then
             cat pip-audit-summary.md >> security.md
@@ -292,33 +272,7 @@ jobs:
           echo "" >> security.md
           echo "_Full JSON: see pip-audit.json artifact_" >> security.md
           echo "" >> security.md
-          
-          echo "### safety (vulnerability database)" >> security.md
-          if [ -f safety.json ] && [ -s safety.json ]; then
-            SAFETY_ISSUES=$(jq '.vulnerabilities | length // 0' safety.json 2>/dev/null || echo "0")
-            if [ "$SAFETY_ISSUES" -eq 0 ]; then
-              SAFETY_ISSUES=$(jq '.results | length // 0' safety.json 2>/dev/null || echo "0")
-            fi
-            if [ "$SAFETY_ISSUES" -gt 0 ]; then
-              echo "🚨 Found: $SAFETY_ISSUES vulnerabilities" >> security.md
-              jq -r '.vulnerabilities[]? | "- " + .package_name + " " + .installed_version + ": " + .vulnerability_id' safety.json 2>/dev/null >> security.md || true
-              jq -r '.results[]? | "- " + .package + ": " + .vulnerability_id' safety.json 2>/dev/null >> security.md || true
-            else
-              echo "✅ No known vulnerabilities found" >> security.md
-            fi
-          elif [ -f safety-legacy.json ] && [ -s safety-legacy.json ]; then
-            echo "Using legacy safety results..." >> security.md
-            SAFETY_ISSUES=$(jq '.vulnerabilities | length // 0' safety-legacy.json 2>/dev/null || echo "0")
-            if [ "$SAFETY_ISSUES" -gt 0 ]; then
-              echo "🚨 Found: $SAFETY_ISSUES vulnerabilities (legacy scan)" >> security.md
-            else
-              echo "✅ No known vulnerabilities found" >> security.md
-            fi
-          else
-            echo "❌ Safety scan failed or no results" >> security.md
-          fi
-          echo "" >> security.md
-          
+
           echo "### bandit (code security patterns)" >> security.md
           if [ -s bandit.json ]; then
             BANDIT_ISSUES=$(jq '.results | length // 0' bandit.json 2>/dev/null || echo "0")
@@ -327,7 +281,7 @@ jobs:
               BANDIT_MEDIUM=$(jq '.results | map(select(.issue_severity == "MEDIUM")) | length' bandit.json 2>/dev/null || echo "0")
               BANDIT_LOW=$(jq '.results | map(select(.issue_severity == "LOW")) | length' bandit.json 2>/dev/null || echo "0")
               echo "🚨 Found: $BANDIT_ISSUES security issues" >> security.md
-              echo "- **HIGH**: $BANDIT_HIGH issues" >> security.md  
+              echo "- **HIGH**: $BANDIT_HIGH issues" >> security.md
               echo "- **MEDIUM**: $BANDIT_MEDIUM issues" >> security.md
               echo "- **LOW**: $BANDIT_LOW issues" >> security.md
               echo "" >> security.md
@@ -340,7 +294,7 @@ jobs:
             echo "❌ Bandit scan failed or no results" >> security.md
           fi
           echo "" >> security.md
-          
+
           echo "### gitleaks (hardcoded secrets)" >> security.md
           if [ -s gitleaks.json ]; then
             GITLEAKS_ISSUES=$(jq '. | length // 0' gitleaks.json 2>/dev/null || echo "0")
@@ -367,8 +321,6 @@ jobs:
             gitleaks.json
             pip-audit.json
             pip-audit-summary.md
-            safety.json
-            safety-legacy.json
             bandit.json
 
   aggregate:
