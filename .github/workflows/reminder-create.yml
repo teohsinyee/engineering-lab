@@ -1,0 +1,35 @@
+name: reminder-create
+
+on:
+  issue_comment:
+    types: [created, edited]
+  workflow_dispatch: {}  # manual test
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  create-reminder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Checkout (for script)
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Normalize /remind to default SGT
+        id: rewrite
+        run: |
+          NEW=$(node .github/scripts/normalize-remind.js)
+          echo "event_path=$NEW" >> "$GITHUB_OUTPUT"
+
+      - name: Parse /remind comments and store reminder
+        uses: agrc/create-reminder-action@v1
+        env:
+          # Override the event JSON the action reads, so it sees our SGT-appended text
+          GITHUB_EVENT_PATH: ${{ steps.rewrite.outputs.event_path }}

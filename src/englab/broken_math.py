@@ -12,12 +12,14 @@ def add(a: int | None, b: int) -> int:
     """Add two numbers with intentional type issues."""
     if a is None:      # type issue
         return "zero"  # wrong return type - pyright will catch this
-    return a+b
+    return a + b
 
+# TODO(#2): Fix Unsafe deserialization
 def unsafe_deserialize(data: bytes) -> Any:
     """B301 - Unsafe deserialization of untrusted data."""
     return pickle.loads(data)  # bandit will flag this
 
+# TODO(#2): Fix SQL injection vulnerability
 def sql_injection_demo(user_id: str) -> list:
     """B608 - SQL injection vulnerability."""
     conn = sqlite3.connect(":memory:")
@@ -41,6 +43,7 @@ def command_injection_demo(filename: str):
     # B603 - subprocess without shell but still dangerous
     subprocess.call(["rm", filename])
 
+# TODO(#2): Fix command injection vulnerability
 def print_credentials():
     """Print sensitive information - custom security issue."""
     print(f"Database password: {DATABASE_PASSWORD}")
