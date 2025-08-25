@@ -1,0 +1,29 @@
+name: TODO to Issue (push-only)
+
+on:
+  push:
+  workflow_dispatch:  
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  todo_to_issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history so diffs work)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TODO to Issue
+        uses: alstr/todo-to-issue-action@v5.1.13
+        with:
+          # For a centralized backlog, don't want auto-closing
+          CLOSE_ISSUES: "false"
+          # Optional: if true, the action writes created issue URLs back into TODO lines
+          INSERT_ISSUE_URLS: "false"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
