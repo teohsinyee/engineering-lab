@@ -12,7 +12,7 @@ def add(a: int | None, b: int) -> int:
     """Add two numbers with intentional type issues."""
     if a is None:      # type issue
         return "zero"  # wrong return type - pyright will catch this
-    return a+b
+    return a + b
 
 # TODO(#2): Fix Unsafe deserialization
 def unsafe_deserialize(data: bytes) -> Any:
