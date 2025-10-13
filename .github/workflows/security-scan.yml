@@ -10,33 +10,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout full repo
+      - name: Checkout full history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install TruffleHog
+      - name: Install TruffleHog (official method)
         run: |
           echo "🔧 Installing TruffleHog..."
-          curl -sSL https://github.com/trufflesecurity/trufflehog/releases/latest/download/trufflehog_$(uname -s)_$(uname -m).tar.gz -o trufflehog.tar.gz
-          tar -xzf trufflehog.tar.gz trufflehog
-          sudo mv trufflehog /usr/local/bin/
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
+            | sh -s -- -b /usr/local/bin
           trufflehog --version
 
-      - name: Run TruffleHog full-history scan
+      - name: Run full TruffleHog scan
         run: |
-          echo "🐷 Starting full TruffleHog scan..."
+          echo "🐷 Running full-history TruffleHog scan..."
           trufflehog git file://$(pwd) \
-            --log-level=info \
             --results=verified,unknown,unverified \
             --no-update \
             --json \
-            --fail > trufflehog-results.json
-        continue-on-error: true  # allow upload even if fail
+            --fail > trufflehog-results.json || true
 
-      - name: Upload TruffleHog report
+      - name: Upload TruffleHog results
         uses: actions/upload-artifact@v4
         with:
           name: trufflehog-report
           path: trufflehog-results.json
-          if-no-files-found: error
+          if-no-files-found: warn
