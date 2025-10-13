@@ -13,9 +13,17 @@ jobs:
       - name: Checkout full repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 
+          fetch-depth: 0
 
-      - name: Run TruffleHog and save report
+      - name: Install TruffleHog
+        run: |
+          echo "🔧 Installing TruffleHog..."
+          curl -sSL https://github.com/trufflesecurity/trufflehog/releases/latest/download/trufflehog_$(uname -s)_$(uname -m).tar.gz -o trufflehog.tar.gz
+          tar -xzf trufflehog.tar.gz trufflehog
+          sudo mv trufflehog /usr/local/bin/
+          trufflehog --version
+
+      - name: Run TruffleHog full-history scan
         run: |
           echo "🐷 Starting full TruffleHog scan..."
           trufflehog git file://$(pwd) \
@@ -24,7 +32,7 @@ jobs:
             --no-update \
             --json \
             --fail > trufflehog-results.json
-        continue-on-error: true  # ensure artifact still uploads even if secrets found
+        continue-on-error: true  # allow upload even if fail
 
       - name: Upload TruffleHog report
         uses: actions/upload-artifact@v4
