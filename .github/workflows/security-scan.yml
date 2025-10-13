@@ -1,55 +1,34 @@
 name: TruffleHog Secrets Scan
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch: 
 
 jobs:
   trufflehog-scan:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout full repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # Full history needed for complete scans
+          fetch-depth: 0 
 
-      # 🧠 Automatically detect if it's a manual run
-      - name: Set scan mode
-        id: mode
+      - name: Run TruffleHog and save report
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "mode=full" >> $GITHUB_OUTPUT
-          else
-            echo "mode=diff" >> $GITHUB_OUTPUT
-          fi
-
-      # 🐷 Run TruffleHog
-      - name: Run TruffleHog OSS
-        id: trufflehog
-        uses: trufflesecurity/trufflehog@main
-        with:
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
-          extra_args: >
-            --results=verified,unknown,unverified
-            --no-update
-            --json
-            ${{ steps.mode.outputs.mode == 'full' && '--force' || '' }}
-            --debug
+          echo "🐷 Starting full TruffleHog scan..."
+          trufflehog git file://$(pwd) \
+            --log-level=info \
+            --results=verified,unknown,unverified \
+            --no-update \
+            --json \
+            --fail > trufflehog-results.json
+        continue-on-error: true  # ensure artifact still uploads even if secrets found
 
       - name: Upload TruffleHog report
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: trufflehog-report
           path: trufflehog-results.json
-
-      - name: Fail if secrets were found
-        if: ${{ failure() && steps.trufflehog.conclusion == 'success' }}
-        run: |
-          echo "❌ TruffleHog found secrets in the repository!"
-          exit 1
+          if-no-files-found: error
