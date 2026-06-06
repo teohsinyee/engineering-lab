@@ -65,6 +65,10 @@ If review request APIs fail during implementation:
 - [ ] Store the private key in a secure temporary local location
 - [ ] Confirm who is allowed to manage or rotate this key
 
+Detailed guide:
+
+- [ ] Follow [app-credentials-guide.md](./app-credentials-guide.md) to capture `PR_APP_ID` and `PR_APP_PRIVATE_KEY`
+
 ## 5. Install The App On The Repo
 
 - [ ] Install the App on this repository only, if possible

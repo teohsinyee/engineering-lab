@@ -29,4 +29,4 @@ YYYY-MM-DD-change-name.logs.md
   - Decision: [2026-06-06-github-app-pr-automation.decision.md](./2026-06-06-github-app-pr-automation.decision.md)
   - Spec: [2026-06-06-github-app-pr-automation.spec.md](./2026-06-06-github-app-pr-automation.spec.md)
   - Logs: [2026-06-06-github-app-pr-automation.logs.md](./2026-06-06-github-app-pr-automation.logs.md)
-  - Supporting docs: [operator guide](../github-app-pr/operator-guide.md), [setup checklist](../github-app-pr/setup-checklist.md)
+  - Supporting docs: [operator guide](../github-app-pr/operator-guide.md), [setup checklist](../github-app-pr/setup-checklist.md), [app credentials guide](../github-app-pr/app-credentials-guide.md)
