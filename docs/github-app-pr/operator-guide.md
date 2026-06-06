@@ -107,10 +107,14 @@ Use a short body that helps the reviewer decide quickly:
 
 1. Open the repository on GitHub.
 2. Go to the `Actions` tab.
-3. Open the PR creation workflow.
+3. Open the `Create PR via GitHub App` workflow.
 4. Select `Run workflow`.
 5. Fill in `branch`, `base`, `title`, `body`, and `draft`.
 6. Start the run.
+
+Workflow file:
+
+- `.github/workflows/create-pr-via-app.yml`
 
 ## What Success Looks Like
 

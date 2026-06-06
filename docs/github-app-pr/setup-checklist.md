@@ -94,6 +94,8 @@ Secret handling checks:
 The workflow should:
 
 - [ ] use `workflow_dispatch`
+- [ ] live at `.github/workflows/create-pr-via-app.yml`
+- [ ] appear in GitHub Actions as `Create PR via GitHub App`
 - [ ] accept `branch`, `base`, `title`, `body`, and `draft`
 - [ ] generate a GitHub App installation token
 - [ ] validate branch existence before PR creation
