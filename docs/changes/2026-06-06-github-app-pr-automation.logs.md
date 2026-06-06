@@ -36,6 +36,13 @@ No live GitHub Actions run has been executed yet in this repo.
 
 ### 2026-06-06
 
+- Context: The chat included important Create App form guidance that should not stay only in conversation history
+- Action: Expanded `docs/github-app-pr/app-credentials-guide.md` with recommended values and rationale for the Create GitHub App form, including homepage URL, callback URL, OAuth settings, webhook settings, repository permissions, organization permissions, and installation scope
+- Result: The docs now capture the practical field-by-field setup guidance needed during GitHub App creation
+- Follow-up: If the final chosen app name or permission set changes during live setup, update the guide to match the real production configuration
+
+### 2026-06-06
+
 - Context: Wanted a local workflow lint check before asking for a live GitHub Actions run
 - Action: Installed `actionlint` version `1.7.12` via `winget`, then ran it against `.github/workflows/create-pr-via-app.yml`
 - Result: Lint passed with no workflow errors; on Windows, the new PATH entry was not available in the current shell immediately, so the installed binary was invoked via its absolute path under `AppData\\Local\\Microsoft\\WinGet\\Packages`

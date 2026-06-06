@@ -55,6 +55,89 @@ Recommended purpose:
 
 - `Open pull requests for AI-assisted repo work so the human maintainer can stay in the review and approval path`
 
+## Recommended Create App Form Values
+
+Use the smallest practical setup for this workflow.
+
+### Basic Information
+
+- `GitHub App name`: use your chosen unique app name, for example `AI PR Opener Bot`
+- Description: `Open pull requests for AI-assisted repo work so the human maintainer can stay in the review and approval path`
+- `Homepage URL`: use a repository URL that explains or hosts the workflow, such as `https://github.com/teohsinyee/engineering-lab`
+
+Why this is enough:
+
+- the app needs a homepage because GitHub requires one
+- the homepage does not control PR creation behavior
+- using the repo URL is a simple and acceptable starting point
+
+### Identifying And Authorizing Users
+
+For this workflow:
+
+- do not add a `Callback URL`
+- do not enable `Request user authorization (OAuth) during installation`
+- `Expire user authorization tokens` is not needed for this setup
+
+Why:
+
+- this workflow does not use GitHub OAuth sign-in
+- it does not redirect users back to your app
+- it uses GitHub App installation authentication, not user authorization tokens
+
+### Webhooks
+
+For the first version:
+
+- disable webhook handling
+- do not provide a `Webhook URL`
+- do not provide a `Webhook secret`
+
+Why:
+
+- the workflow is triggered manually through `workflow_dispatch`
+- the app does not need inbound webhook events to open pull requests
+- leaving webhooks out keeps the setup smaller and easier to reason about
+
+### Repository Permissions
+
+Start with:
+
+- `Contents`: `Read and write`
+- `Pull requests`: `Read and write`
+- `Metadata`: read-only is provided by GitHub automatically
+
+Set everything else to `No access` unless implementation proves it is needed later.
+
+Why:
+
+- `Contents` access is needed for repository-level operations tied to the installation
+- `Pull requests` access is needed to create the PR and request reviewers
+- smaller permission scope is safer and easier to audit
+
+### Organization Permissions
+
+If GitHub shows organization permissions and you are not using org-level features:
+
+- leave them as `No access`
+
+Why:
+
+- this workflow only needs repo-scoped PR automation
+- unnecessary org permissions make review harder and increase blast radius
+
+### Installation Scope
+
+When GitHub asks where the app can be installed:
+
+- prefer the smallest scope that still matches your intended usage
+- if you want to reuse the app across multiple repos later, that is fine, but still install it selectively where practical
+
+Why:
+
+- the app can be reusable without being installed everywhere
+- smaller installation scope reduces accidental access
+
 ## Part 2: Get `PR_APP_ID`
 
 1. Open the GitHub App settings page.
