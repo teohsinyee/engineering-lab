@@ -48,6 +48,13 @@ No live GitHub Actions run has been executed yet in this repo.
 - Result: Lint passed with no workflow errors; on Windows, the new PATH entry was not available in the current shell immediately, so the installed binary was invoked via its absolute path under `AppData\\Local\\Microsoft\\WinGet\\Packages`
 - Follow-up: After opening a fresh shell, confirm whether the `actionlint` alias is available directly without the absolute path workaround
 
+### 2026-06-06
+
+- Context: Preparing a minimal branch to validate the live `Create PR via GitHub App` workflow after the bootstrap PR was merged
+- Action: Created a dedicated test branch with a small documentation-only change so the GitHub App workflow can open a fresh validation PR against `main`
+- Result: The repo is ready for the first live end-to-end test of App-created PRs and automatic reviewer requests
+- Follow-up: Run the workflow from GitHub Actions using this test branch and record whether the PR author shows the GitHub App identity as expected
+
 ## Suggested Log Format
 
 ### YYYY-MM-DD
